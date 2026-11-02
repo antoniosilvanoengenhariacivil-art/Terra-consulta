@@ -1,0 +1,30 @@
+-- Executado pelo import_embargos.js dentro de uma transação (psql --single-transaction).
+-- Variáveis: sha, arquivo, linhas. O caminho do CSV é injetado pelo importador. Caminhos relativos a server/.
+\i ../db/002_embargos.sql
+
+-- Atualização completa: o arquivo é um retrato inteiro dos termos.
+DELETE FROM embargo_import;
+INSERT INTO embargo_import (arquivo, sha256, linhas) VALUES (:'arquivo', :'sha', :'linhas'::int);
+SELECT max(id) AS imp FROM embargo_import \gset
+
+CREATE TEMP TABLE stg (LIKE embargo_pontos INCLUDING DEFAULTS) ON COMMIT DROP;
+ALTER TABLE stg DROP COLUMN id, DROP COLUMN import_id;
+\copy stg (linha,num_tad,seq_tad,seq_poligono,sq_poligono_aiemob,no_area,area_poligono_txt,seq_ponto_poligono,sq_coordenada_aiemob,ordem,lon_orig,lat_orig,lon,lat,qualidade,ultima_atualizacao) FROM :'csv' WITH (FORMAT csv, HEADER true)
+INSERT INTO embargo_pontos (import_id, linha,num_tad,seq_tad,seq_poligono,sq_poligono_aiemob,no_area,area_poligono_txt,seq_ponto_poligono,sq_coordenada_aiemob,ordem,lon_orig,lat_orig,lon,lat,qualidade,ultima_atualizacao)
+SELECT :imp, linha,num_tad,seq_tad,seq_poligono,sq_poligono_aiemob,no_area,area_poligono_txt,seq_ponto_poligono,sq_coordenada_aiemob,ordem,lon_orig,lat_orig,lon,lat,qualidade,ultima_atualizacao FROM stg;
+
+\i sql/embargos_build.sql
+
+SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'postgis') AS tem_postgis \gset
+\if :tem_postgis
+  \i ../db/003_embargos_postgis.sql
+  \i sql/embargos_postgis.sql
+\endif
+
+UPDATE embargo_import SET resumo = jsonb_build_object(
+  'postgis', :'tem_postgis'::boolean,
+  'termos', (SELECT count(DISTINCT num_tad) FROM embargo_pontos),
+  'qualidade', (SELECT jsonb_object_agg(qualidade, n) FROM (SELECT qualidade, count(*) n FROM embargo_pontos GROUP BY 1) q),
+  'geometrias', (SELECT jsonb_object_agg(tipo_geom, n) FROM (SELECT tipo_geom, count(*) n FROM embargo_poligonos GROUP BY 1) g))
+WHERE id = :imp;
+SELECT resumo FROM embargo_import WHERE id = :imp;

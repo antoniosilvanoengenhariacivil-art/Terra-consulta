@@ -1,0 +1,15 @@
+{
+  "name": "terraconsulta-server",
+  "version": "0.1.0",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node src/index.js",
+    "ingest": "node src/ingest.js"
+  },
+  "dependencies": {
+    "@fastify/static": "^7.0.4",
+    "fastify": "^4.28.1",
+    "pg": "^8.12.0"
+  }
+}
